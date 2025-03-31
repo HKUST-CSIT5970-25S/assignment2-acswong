@@ -49,8 +49,10 @@ public class BigramFrequencyPairs extends Configured implements Tool {
 		public void map(LongWritable key, Text value, Context context)
 				throws IOException, InterruptedException {
 			String line = ((Text) value).toString();
-			String[] words = line.trim().split("\\s+");
 			
+		        String cleanLine = line.replaceAll("[^a-zA-Z\\s]", "").toLowerCase();
+		        String[] words = cleanLine.trim().split("\\s+");
+					
 			if (words.length < 2) {
 				return; // skip lines with only one word
 			}
