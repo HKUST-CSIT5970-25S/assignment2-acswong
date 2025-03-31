@@ -35,7 +35,7 @@ public class BigramFrequencyPairs extends Configured implements Tool {
 	private static final Logger LOG = Logger.getLogger(BigramFrequencyPairs.class);
 
 	/*
-	 * TODO: write your Mapper here.
+	 * Mapper that emits bigrams and their counts (1 for each occurrence)
 	 */
 	private static class MyMapper extends
 			Mapper<LongWritable, Text, PairOfStrings, IntWritable> {
@@ -43,6 +43,7 @@ public class BigramFrequencyPairs extends Configured implements Tool {
 		// Reuse objects to save overhead of object creation.
 		private static final IntWritable ONE = new IntWritable(1);
 		private static final PairOfStrings BIGRAM = new PairOfStrings();
+		private static final PairOfStrings UNIGRAM = new PairOfStrings();
 
 		@Override
 		public void map(LongWritable key, Text value, Context context)
@@ -51,54 +52,62 @@ public class BigramFrequencyPairs extends Configured implements Tool {
 			String[] words = line.trim().split("\\s+");
 			
 			if (words.length < 2) {
-				return; 
+				return; // skip lines with only one word
 			}
-
+			
+			// Emit each bigram and also emit each word with "*" as right element for counting
 			for (int i = 0; i < words.length - 1; i++) {
 				String word1 = words[i];
 				String word2 = words[i+1];
 				
+				// Emit the bigram
 				BIGRAM.set(word1, word2);
 				context.write(BIGRAM, ONE);
+				
+				// Emit the unigram count marker
 				UNIGRAM.set(word1, "*");
 				context.write(UNIGRAM, ONE);
 			}
+			
+			// Emit the last word's unigram count marker
 			UNIGRAM.set(words[words.length-1], "*");
 			context.write(UNIGRAM, ONE);
 		}
 	}
 
 	/*
-	 * Reducer here.
+	 * Reducer that computes relative frequencies
 	 */
 	private static class MyReducer extends
 			Reducer<PairOfStrings, IntWritable, PairOfStrings, FloatWritable> {
 
 		// Reuse objects.
 		private final static FloatWritable VALUE = new FloatWritable();
+		private float currentTotal = 0;
 
 		@Override
 		public void reduce(PairOfStrings key, Iterable<IntWritable> values,
 				Context context) throws IOException, InterruptedException {
 			if (key.getRightElement().equals("*")) {
-				// total uni
+				// This is a unigram count, sum all counts
 				int sum = 0;
 				for (IntWritable value : values) {
 					sum += value.get();
 				}
 				currentTotal = sum;
 				
-				// Totsal wc
+				// Output the total count for the word
 				PairOfStrings outputKey = new PairOfStrings(key.getLeftElement(), "");
 				VALUE.set((float) sum);
 				context.write(outputKey, VALUE);
 			} else {
+				// This is a bigram, sum all counts
 				int sum = 0;
 				for (IntWritable value : values) {
 					sum += value.get();
 				}
 				
-				// Frequency calc
+				// Calculate relative frequency
 				float relativeFrequency = sum / currentTotal;
 				VALUE.set(relativeFrequency);
 				context.write(key, VALUE);
@@ -113,7 +122,7 @@ public class BigramFrequencyPairs extends Configured implements Tool {
 		@Override
 		public void reduce(PairOfStrings key, Iterable<IntWritable> values,
 				Context context) throws IOException, InterruptedException {
-			
+			// Sum all counts for the same key
 			int sum = 0;
 			for (IntWritable value : values) {
 				sum += value.get();
