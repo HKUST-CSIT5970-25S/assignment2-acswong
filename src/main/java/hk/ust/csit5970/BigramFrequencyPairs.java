@@ -32,216 +32,179 @@ import org.apache.log4j.Logger;
  * Compute the bigram count using "pairs" approach
  */
 public class BigramFrequencyPairs extends Configured implements Tool {
-	private static final Logger LOG = Logger.getLogger(BigramFrequencyPairs.class);
+    private static final Logger LOG = Logger.getLogger(BigramFrequencyPairs.class);
 
-	/*
-	 * Mapper that emits bigrams and their counts (1 for each occurrence)
-	 */
-	private static class MyMapper extends
-			Mapper<LongWritable, Text, PairOfStrings, IntWritable> {
+    private static class MyMapper extends
+            Mapper<LongWritable, Text, PairOfStrings, IntWritable> {
 
-		// Reuse objects to save overhead of object creation.
-		private static final IntWritable ONE = new IntWritable(1);
-		private static final PairOfStrings BIGRAM = new PairOfStrings();
-		private static final PairOfStrings UNIGRAM = new PairOfStrings();
+        private static final IntWritable ONE = new IntWritable(1);
+        private static final PairOfStrings BIGRAM = new PairOfStrings();
 
-		@Override
-		public void map(LongWritable key, Text value, Context context)
-				throws IOException, InterruptedException {
-			String line = ((Text) value).toString();
-			String[] words = line.trim().split("\\s+");
-			
-			if (words.length < 2) {
-				return; // skip lines with only one word
-			}
-			
-			// Emit each bigram and also emit each word with "*" as right element for counting
-			for (int i = 0; i < words.length - 1; i++) {
-				String word1 = words[i];
-				String word2 = words[i+1];
-				
-				// Emit the bigram
-				BIGRAM.set(word1, word2);
-				context.write(BIGRAM, ONE);
-				
-				// Emit the unigram count marker
-				UNIGRAM.set(word1, "*");
-				context.write(UNIGRAM, ONE);
-			}
-			
-			// Emit the last word's unigram count marker
-			UNIGRAM.set(words[words.length-1], "*");
-			context.write(UNIGRAM, ONE);
-		}
-	}
+        @Override
+        public void map(LongWritable key, Text value, Context context)
+                throws IOException, InterruptedException {
+            String line = value.toString();
+            String[] words = line.trim().split("\\s+");
+            
+            // Process each consecutive pair of words
+            for (int i = 0; i < words.length - 1; i++) {
+                if (words[i].length() > 0 && words[i+1].length() > 0) {
+                    BIGRAM.set(words[i], words[i + 1]);
+                    context.write(BIGRAM, ONE);
+                }
+            }
+        }
+    }
 
-	/*
-	 * Reducer that computes relative frequencies
-	 */
-	private static class MyReducer extends
-			Reducer<PairOfStrings, IntWritable, PairOfStrings, FloatWritable> {
+    private static class MyReducer extends
+            Reducer<PairOfStrings, IntWritable, PairOfStrings, FloatWritable> {
 
-		// Reuse objects.
-		private final static FloatWritable VALUE = new FloatWritable();
-		private float currentTotal = 0;
+        private final static FloatWritable VALUE = new FloatWritable();
+        private String lastLeftWord = null;
+        private int marginalCount = 0;  // Sum of all bigrams with same left word
+        
+        @Override
+        public void reduce(PairOfStrings key, Iterable<IntWritable> values,
+                Context context) throws IOException, InterruptedException {
+            String leftWord = key.getLeftElement();
+            
+            // When we switch to a new left word, output the marginal count
+            if (lastLeftWord != null && !leftWord.equals(lastLeftWord)) {
+                VALUE.set(marginalCount);
+                context.write(new PairOfStrings(lastLeftWord, ""), VALUE);
+                marginalCount = 0;
+            }
+            
+            // Calculate sum for current bigram
+            int sum = 0;
+            for (IntWritable value : values) {
+                sum += value.get();
+            }
+            
+            // Output the bigram and its relative frequency
+            VALUE.set(sum);  // Will be divided by marginal in cleanup
+            context.write(key.clone(), VALUE);
+            
+            marginalCount += sum;
+            lastLeftWord = leftWord;
+        }
+        
+        @Override
+        protected void cleanup(Context context) throws IOException, InterruptedException {
+            // Output the last marginal count
+            if (lastLeftWord != null) {
+                VALUE.set(marginalCount);
+                context.write(new PairOfStrings(lastLeftWord, ""), VALUE);
+            }
+        }
+    }
+    
+    private static class MyCombiner extends
+            Reducer<PairOfStrings, IntWritable, PairOfStrings, IntWritable> {
+        private static final IntWritable SUM = new IntWritable();
 
-		@Override
-		public void reduce(PairOfStrings key, Iterable<IntWritable> values,
-				Context context) throws IOException, InterruptedException {
-			if (key.getRightElement().equals("*")) {
-				// This is a unigram count, sum all counts
-				int sum = 0;
-				for (IntWritable value : values) {
-					sum += value.get();
-				}
-				currentTotal = sum;
-				
-				// Output the total count for the word
-				PairOfStrings outputKey = new PairOfStrings(key.getLeftElement(), "");
-				VALUE.set((float) sum);
-				context.write(outputKey, VALUE);
-			} else {
-				// This is a bigram, sum all counts
-				int sum = 0;
-				for (IntWritable value : values) {
-					sum += value.get();
-				}
-				
-				// Calculate relative frequency
-				float relativeFrequency = sum / currentTotal;
-				VALUE.set(relativeFrequency);
-				context.write(key, VALUE);
-			}
-		}
-	}
-	
-	private static class MyCombiner extends
-			Reducer<PairOfStrings, IntWritable, PairOfStrings, IntWritable> {
-		private static final IntWritable SUM = new IntWritable();
+        @Override
+        public void reduce(PairOfStrings key, Iterable<IntWritable> values,
+                Context context) throws IOException, InterruptedException {
+            int sum = 0;
+            for (IntWritable value : values) {
+                sum += value.get();
+            }
+            SUM.set(sum);
+            context.write(key, SUM);
+        }
+    }
 
-		@Override
-		public void reduce(PairOfStrings key, Iterable<IntWritable> values,
-				Context context) throws IOException, InterruptedException {
-			// Sum all counts for the same key
-			int sum = 0;
-			for (IntWritable value : values) {
-				sum += value.get();
-			}
-			SUM.set(sum);
-			context.write(key, SUM);
-		}
-	}
+    private static class MyPartitioner extends
+            Partitioner<PairOfStrings, IntWritable> {
+        @Override
+        public int getPartition(PairOfStrings key, IntWritable value,
+                int numReduceTasks) {
+            return (key.getLeftElement().hashCode() & Integer.MAX_VALUE)
+                    % numReduceTasks;
+        }
+    }
 
-	/*
-	 * Partition bigrams based on their left elements
-	 */
-	private static class MyPartitioner extends
-			Partitioner<PairOfStrings, IntWritable> {
-		@Override
-		public int getPartition(PairOfStrings key, IntWritable value,
-				int numReduceTasks) {
-			return (key.getLeftElement().hashCode() & Integer.MAX_VALUE)
-					% numReduceTasks;
-		}
-	}
+    public BigramFrequencyPairs() {
+    }
 
-	/**
-	 * Creates an instance of this tool.
-	 */
-	public BigramFrequencyPairs() {
-	}
+    private static final String INPUT = "input";
+    private static final String OUTPUT = "output";
+    private static final String NUM_REDUCERS = "numReducers";
 
-	private static final String INPUT = "input";
-	private static final String OUTPUT = "output";
-	private static final String NUM_REDUCERS = "numReducers";
+    @SuppressWarnings({ "static-access" })
+    public int run(String[] args) throws Exception {
+        Options options = new Options();
 
-	/**
-	 * Runs this tool.
-	 */
-	@SuppressWarnings({ "static-access" })
-	public int run(String[] args) throws Exception {
-		Options options = new Options();
+        options.addOption(OptionBuilder.withArgName("path").hasArg()
+                .withDescription("input path").create(INPUT));
+        options.addOption(OptionBuilder.withArgName("path").hasArg()
+                .withDescription("output path").create(OUTPUT));
+        options.addOption(OptionBuilder.withArgName("num").hasArg()
+                .withDescription("number of reducers").create(NUM_REDUCERS));
 
-		options.addOption(OptionBuilder.withArgName("path").hasArg()
-				.withDescription("input path").create(INPUT));
-		options.addOption(OptionBuilder.withArgName("path").hasArg()
-				.withDescription("output path").create(OUTPUT));
-		options.addOption(OptionBuilder.withArgName("num").hasArg()
-				.withDescription("number of reducers").create(NUM_REDUCERS));
+        CommandLine cmdline;
+        CommandLineParser parser = new GnuParser();
 
-		CommandLine cmdline;
-		CommandLineParser parser = new GnuParser();
+        try {
+            cmdline = parser.parse(options, args);
+        } catch (ParseException exp) {
+            System.err.println("Error parsing command line: "
+                    + exp.getMessage());
+            return -1;
+        }
 
-		try {
-			cmdline = parser.parse(options, args);
-		} catch (ParseException exp) {
-			System.err.println("Error parsing command line: "
-					+ exp.getMessage());
-			return -1;
-		}
+        if (!cmdline.hasOption(INPUT) || !cmdline.hasOption(OUTPUT)) {
+            System.out.println("args: " + Arrays.toString(args));
+            HelpFormatter formatter = new HelpFormatter();
+            formatter.setWidth(120);
+            formatter.printHelp(this.getClass().getName(), options);
+            ToolRunner.printGenericCommandUsage(System.out);
+            return -1;
+        }
 
-		// Lack of arguments
-		if (!cmdline.hasOption(INPUT) || !cmdline.hasOption(OUTPUT)) {
-			System.out.println("args: " + Arrays.toString(args));
-			HelpFormatter formatter = new HelpFormatter();
-			formatter.setWidth(120);
-			formatter.printHelp(this.getClass().getName(), options);
-			ToolRunner.printGenericCommandUsage(System.out);
-			return -1;
-		}
+        String inputPath = cmdline.getOptionValue(INPUT);
+        String outputPath = cmdline.getOptionValue(OUTPUT);
+        int reduceTasks = cmdline.hasOption(NUM_REDUCERS) ? Integer
+                .parseInt(cmdline.getOptionValue(NUM_REDUCERS)) : 1;
 
-		String inputPath = cmdline.getOptionValue(INPUT);
-		String outputPath = cmdline.getOptionValue(OUTPUT);
-		int reduceTasks = cmdline.hasOption(NUM_REDUCERS) ? Integer
-				.parseInt(cmdline.getOptionValue(NUM_REDUCERS)) : 1;
+        LOG.info("Tool: " + BigramFrequencyPairs.class.getSimpleName());
+        LOG.info(" - input path: " + inputPath);
+        LOG.info(" - output path: " + outputPath);
+        LOG.info(" - number of reducers: " + reduceTasks);
 
-		LOG.info("Tool: " + BigramFrequencyPairs.class.getSimpleName());
-		LOG.info(" - input path: " + inputPath);
-		LOG.info(" - output path: " + outputPath);
-		LOG.info(" - number of reducers: " + reduceTasks);
+        Configuration conf = getConf();
+        Job job = Job.getInstance(conf);
+        job.setJobName(BigramFrequencyPairs.class.getSimpleName());
+        job.setJarByClass(BigramFrequencyPairs.class);
 
-		// Create and configure a MapReduce job
-		Configuration conf = getConf();
-		Job job = Job.getInstance(conf);
-		job.setJobName(BigramFrequencyPairs.class.getSimpleName());
-		job.setJarByClass(BigramFrequencyPairs.class);
+        job.setNumReduceTasks(reduceTasks);
 
-		job.setNumReduceTasks(reduceTasks);
+        FileInputFormat.setInputPaths(job, new Path(inputPath));
+        FileOutputFormat.setOutputPath(job, new Path(outputPath));
 
-		FileInputFormat.setInputPaths(job, new Path(inputPath));
-		FileOutputFormat.setOutputPath(job, new Path(outputPath));
+        job.setMapOutputKeyClass(PairOfStrings.class);
+        job.setMapOutputValueClass(IntWritable.class);
+        job.setOutputKeyClass(PairOfStrings.class);
+        job.setOutputValueClass(FloatWritable.class);
 
-		job.setMapOutputKeyClass(PairOfStrings.class);
-		job.setMapOutputValueClass(IntWritable.class);
-		job.setOutputKeyClass(PairOfStrings.class);
-		job.setOutputValueClass(FloatWritable.class);
+        job.setMapperClass(MyMapper.class);
+        job.setCombinerClass(MyCombiner.class);
+        job.setPartitionerClass(MyPartitioner.class);
+        job.setReducerClass(MyReducer.class);
 
-		/*
-		 * A MapReduce program consists of three components: a mapper, a
-		 * reducer, a combiner (which reduces the amount of shuffle data), and a partitioner
-		 */
-		job.setMapperClass(MyMapper.class);
-		job.setCombinerClass(MyCombiner.class);
-		job.setPartitionerClass(MyPartitioner.class);
-		job.setReducerClass(MyReducer.class);
+        Path outputDir = new Path(outputPath);
+        FileSystem.get(conf).delete(outputDir, true);
 
-		// Delete the output directory if it exists already.
-		Path outputDir = new Path(outputPath);
-		FileSystem.get(conf).delete(outputDir, true);
+        long startTime = System.currentTimeMillis();
+        job.waitForCompletion(true);
+        LOG.info("Job Finished in " + (System.currentTimeMillis() - startTime)
+                / 1000.0 + " seconds");
 
-		// Time the program
-		long startTime = System.currentTimeMillis();
-		job.waitForCompletion(true);
-		LOG.info("Job Finished in " + (System.currentTimeMillis() - startTime)
-				/ 1000.0 + " seconds");
+        return 0;
+    }
 
-		return 0;
-	}
-
-	/**
-	 * Dispatches command-line arguments to the tool via the {@code ToolRunner}.
-	 */
-	public static void main(String[] args) throws Exception {
-		ToolRunner.run(new BigramFrequencyPairs(), args);
-	}
+    public static void main(String[] args) throws Exception {
+        ToolRunner.run(new BigramFrequencyPairs(), args);
+    }
 }
