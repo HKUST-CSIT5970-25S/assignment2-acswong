@@ -2,6 +2,8 @@ package hk.ust.csit5970;
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -61,7 +63,7 @@ public class BigramFrequencyPairs extends Configured implements Tool {
         private final static FloatWritable VALUE = new FloatWritable();
         private String lastLeftWord = null;
         private int marginalCount = 0;
-        private java.util.Map<String, Integer> bigramCounts = new java.util.HashMap<>();
+        private Map<String, Integer> bigramCounts = new HashMap<String, Integer>();
 
         @Override
         public void reduce(PairOfStrings key, Iterable<IntWritable> values,
@@ -76,7 +78,7 @@ public class BigramFrequencyPairs extends Configured implements Tool {
                 context.write(new PairOfStrings(lastLeftWord, ""), VALUE);
                 
                 // Output relative frequencies
-                for (java.util.Map.Entry<String, Integer> entry : bigramCounts.entrySet()) {
+                for (Map.Entry<String, Integer> entry : bigramCounts.entrySet()) {
                     float frequency = (float)entry.getValue() / marginalCount;
                     VALUE.set(frequency);
                     context.write(new PairOfStrings(lastLeftWord, entry.getKey()), VALUE);
@@ -106,7 +108,7 @@ public class BigramFrequencyPairs extends Configured implements Tool {
                 context.write(new PairOfStrings(lastLeftWord, ""), VALUE);
                 
                 // Output last set of relative frequencies
-                for (java.util.Map.Entry<String, Integer> entry : bigramCounts.entrySet()) {
+                for (Map.Entry<String, Integer> entry : bigramCounts.entrySet()) {
                     float frequency = (float)entry.getValue() / marginalCount;
                     VALUE.set(frequency);
                     context.write(new PairOfStrings(lastLeftWord, entry.getKey()), VALUE);
