@@ -50,14 +50,26 @@ public class BigramFrequencyPairs extends Configured implements Tool {
 			String line = ((Text) value).toString();
 			String[] words = line.trim().split("\\s+");
 			
-			/*
-			 * TODO: Your implementation goes here.
-			 */
+			if (words.length < 2) {
+				return; 
+			}
+
+			for (int i = 0; i < words.length - 1; i++) {
+				String word1 = words[i];
+				String word2 = words[i+1];
+				
+				BIGRAM.set(word1, word2);
+				context.write(BIGRAM, ONE);
+				UNIGRAM.set(word1, "*");
+				context.write(UNIGRAM, ONE);
+			}
+			UNIGRAM.set(words[words.length-1], "*");
+			context.write(UNIGRAM, ONE);
 		}
 	}
 
 	/*
-	 * TODO: Write your reducer here.
+	 * Reducer here.
 	 */
 	private static class MyReducer extends
 			Reducer<PairOfStrings, IntWritable, PairOfStrings, FloatWritable> {
@@ -68,9 +80,29 @@ public class BigramFrequencyPairs extends Configured implements Tool {
 		@Override
 		public void reduce(PairOfStrings key, Iterable<IntWritable> values,
 				Context context) throws IOException, InterruptedException {
-			/*
-			 * TODO: Your implementation goes here.
-			 */
+			if (key.getRightElement().equals("*")) {
+				// total uni
+				int sum = 0;
+				for (IntWritable value : values) {
+					sum += value.get();
+				}
+				currentTotal = sum;
+				
+				// Totsal wc
+				PairOfStrings outputKey = new PairOfStrings(key.getLeftElement(), "");
+				VALUE.set((float) sum);
+				context.write(outputKey, VALUE);
+			} else {
+				int sum = 0;
+				for (IntWritable value : values) {
+					sum += value.get();
+				}
+				
+				// Frequency calc
+				float relativeFrequency = sum / currentTotal;
+				VALUE.set(relativeFrequency);
+				context.write(key, VALUE);
+			}
 		}
 	}
 	
@@ -81,9 +113,13 @@ public class BigramFrequencyPairs extends Configured implements Tool {
 		@Override
 		public void reduce(PairOfStrings key, Iterable<IntWritable> values,
 				Context context) throws IOException, InterruptedException {
-			/*
-			 * TODO: Your implementation goes here.
-			 */
+			
+			int sum = 0;
+			for (IntWritable value : values) {
+				sum += value.get();
+			}
+			SUM.set(sum);
+			context.write(key, SUM);
 		}
 	}
 
