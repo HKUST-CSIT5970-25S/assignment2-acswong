@@ -29,7 +29,7 @@ import org.apache.hadoop.util.ToolRunner;
 import org.apache.log4j.Logger;
 
 /**
- * Compute the bigram count using "pairs" approach
+ * Compute the bigram relative frequencies using "pairs" approach
  */
 public class BigramFrequencyPairs extends Configured implements Tool {
     private static final Logger LOG = Logger.getLogger(BigramFrequencyPairs.class);
@@ -46,7 +46,6 @@ public class BigramFrequencyPairs extends Configured implements Tool {
             String line = value.toString();
             String[] words = line.trim().split("\\s+");
             
-            // Process each consecutive pair of words
             for (int i = 0; i < words.length - 1; i++) {
                 if (words[i].length() > 0 && words[i+1].length() > 0) {
                     BIGRAM.set(words[i], words[i + 1]);
@@ -61,17 +60,30 @@ public class BigramFrequencyPairs extends Configured implements Tool {
 
         private final static FloatWritable VALUE = new FloatWritable();
         private String lastLeftWord = null;
-        private int marginalCount = 0;  // Sum of all bigrams with same left word
-        
+        private int marginalCount = 0;
+        private java.util.Map<String, Integer> bigramCounts = new java.util.HashMap<>();
+
         @Override
         public void reduce(PairOfStrings key, Iterable<IntWritable> values,
                 Context context) throws IOException, InterruptedException {
             String leftWord = key.getLeftElement();
+            String rightWord = key.getRightElement();
             
-            // When we switch to a new left word, output the marginal count
+            // When switching to new left word, output previous results
             if (lastLeftWord != null && !leftWord.equals(lastLeftWord)) {
+                // Output marginal count
                 VALUE.set(marginalCount);
                 context.write(new PairOfStrings(lastLeftWord, ""), VALUE);
+                
+                // Output relative frequencies
+                for (java.util.Map.Entry<String, Integer> entry : bigramCounts.entrySet()) {
+                    float frequency = (float)entry.getValue() / marginalCount;
+                    VALUE.set(frequency);
+                    context.write(new PairOfStrings(lastLeftWord, entry.getKey()), VALUE);
+                }
+                
+                // Reset for new left word
+                bigramCounts.clear();
                 marginalCount = 0;
             }
             
@@ -81,20 +93,24 @@ public class BigramFrequencyPairs extends Configured implements Tool {
                 sum += value.get();
             }
             
-            // Output the bigram and its relative frequency
-            VALUE.set(sum);  // Will be divided by marginal in cleanup
-            context.write(key.clone(), VALUE);
-            
+            bigramCounts.put(rightWord, sum);
             marginalCount += sum;
             lastLeftWord = leftWord;
         }
         
         @Override
         protected void cleanup(Context context) throws IOException, InterruptedException {
-            // Output the last marginal count
             if (lastLeftWord != null) {
+                // Output last marginal count
                 VALUE.set(marginalCount);
                 context.write(new PairOfStrings(lastLeftWord, ""), VALUE);
+                
+                // Output last set of relative frequencies
+                for (java.util.Map.Entry<String, Integer> entry : bigramCounts.entrySet()) {
+                    float frequency = (float)entry.getValue() / marginalCount;
+                    VALUE.set(frequency);
+                    context.write(new PairOfStrings(lastLeftWord, entry.getKey()), VALUE);
+                }
             }
         }
     }
