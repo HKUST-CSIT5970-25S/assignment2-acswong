@@ -3,6 +3,7 @@ package hk.ust.csit5970;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -30,6 +31,7 @@ import org.apache.log4j.Logger;
 
 public class BigramFrequencyStripes extends Configured implements Tool {
     private static final Logger LOG = Logger.getLogger(BigramFrequencyStripes.class);
+    private static final Pattern WORD_BOUNDARY = Pattern.compile("\\s*\\b\\s*");
 
     private static class MyMapper extends
             Mapper<LongWritable, Text, Text, HashMapStringIntWritable> {
@@ -39,17 +41,20 @@ public class BigramFrequencyStripes extends Configured implements Tool {
         @Override
         public void map(LongWritable key, Text value, Context context)
                 throws IOException, InterruptedException {
-            String line = value.toString();
-            String[] words = line.trim().split("\\s+");
+            String line = value.toString().toLowerCase();
+            String[] words = WORD_BOUNDARY.split(line);
 
-            if (words.length < 2) {
-                return;
-            }
+            if (words.length < 2) return;
 
             for (int i = 0; i < words.length - 1; i++) {
+                String current = words[i].replaceAll("[^a-zA-Z]", "");
+                String next = words[i+1].replaceAll("[^a-zA-Z]", "");
+                
+                if (current.isEmpty() || next.isEmpty()) continue;
+                
                 STRIPE.clear();
-                STRIPE.increment(words[i+1]);
-                KEY.set(words[i]);
+                STRIPE.increment(next);
+                KEY.set(current);
                 context.write(KEY, STRIPE);
             }
         }
@@ -80,13 +85,15 @@ public class BigramFrequencyStripes extends Configured implements Tool {
         public void reduce(Text key, Iterable<HashMapStringIntWritable> stripes, 
                 Context context) throws IOException, InterruptedException {
             SUM_STRIPES.clear();
+            int total = 0;
+            
             for (HashMapStringIntWritable stripe : stripes) {
-                SUM_STRIPES.plus(stripe);
-            }
-
-            float total = 0;
-            for (int count : SUM_STRIPES.values()) {
-                total += count;
+                for (Map.Entry<String, Integer> entry : stripe.entrySet()) {
+                    String word = entry.getKey();
+                    int count = entry.getValue();
+                    SUM_STRIPES.increment(word, count);
+                    total += count;
+                }
             }
 
             BIGRAM.set(key.toString(), "");
@@ -94,11 +101,9 @@ public class BigramFrequencyStripes extends Configured implements Tool {
             context.write(BIGRAM, FREQ);
 
             for (Map.Entry<String, Integer> entry : SUM_STRIPES.entrySet()) {
-                if (entry.getValue() > 1) {
-                    BIGRAM.set(key.toString(), entry.getKey());
-                    FREQ.set(entry.getValue() / total);
-                    context.write(BIGRAM, FREQ);
-                }
+                BIGRAM.set(key.toString(), entry.getKey());
+                FREQ.set(entry.getValue() / (float)total);
+                context.write(BIGRAM, FREQ);
             }
         }
     }
@@ -141,11 +146,6 @@ public class BigramFrequencyStripes extends Configured implements Tool {
         String outputPath = cmdline.getOptionValue(OUTPUT);
         int reduceTasks = cmdline.hasOption(NUM_REDUCERS) ? 
                 Integer.parseInt(cmdline.getOptionValue(NUM_REDUCERS)) : 1;
-
-        LOG.info("Tool: " + BigramFrequencyStripes.class.getSimpleName());
-        LOG.info(" - input path: " + inputPath);
-        LOG.info(" - output path: " + outputPath);
-        LOG.info(" - number of reducers: " + reduceTasks);
 
         Configuration conf = getConf();
         Job job = Job.getInstance(conf);
