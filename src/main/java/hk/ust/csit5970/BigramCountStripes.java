@@ -54,20 +54,18 @@ public class BigramCountStripes extends Configured implements Tool {
 			/*
 			 * Sample code
 			 */
-			if (words.length > 1){
-				KEY.set( words[0]);
-				for (int i = 1; i < words.length; i++) {
-					String w = words[i];
-					// Skip empty words
-					if (w.length() == 0) {
-						continue;
-					}
-					STRIPE.increment(w);
-					context.write(KEY, STRIPE);
-					KEY.set(w);
-					STRIPE.clear();
-				}
+		        if (words.length < 2) {
+		            return; 
+		        }
+       			for (int i = 0; i < words.length - 1; i++) {
+				String currentWord = words[i];
+			        String nextWord = words[i+1];
+			        STRIPE.clear();
+			        STRIPE.increment(nextWord);
+			        KEY.set(currentWord);
+			        context.write(KEY, STRIPE);
 			}
+			
 		}
 	}
 
@@ -123,17 +121,27 @@ public class BigramCountStripes extends Configured implements Tool {
 				Iterable<HashMapStringIntWritable> stripes, Context context)
 				throws IOException, InterruptedException {
 			/*
-			 * Sample code
+			 *not Sample code
 			 */
-			Iterator<HashMapStringIntWritable> iter = stripes.iterator();
-
-			while (iter.hasNext()) {
-				for ( String second_w : iter.next().keySet() ) {
-					SUM_STRIPES.increment(second_w);
-				}
-			}
-			context.write(key, SUM_STRIPES);
-			SUM_STRIPES.clear();
+		        SUM_STRIPES.clear();
+		        for (HashMapStringIntWritable stripe : stripes) {
+		            SUM_STRIPES.plus(stripe);
+		        }
+		
+		        float total = 0;
+		        for (int count : SUM_STRIPES.values()) {
+		            total += count;
+		        }
+		
+		        BIGRAM.set(key.toString(), "");
+		        FREQ.set(total);
+		        context.write(BIGRAM, FREQ);
+		
+		        for (Map.Entry<String, Integer> entry : SUM_STRIPES.entrySet()) {
+		            BIGRAM.set(key.toString(), entry.getKey());
+		            FREQ.set(entry.getValue() / total);
+		            context.write(BIGRAM, FREQ);
+		        }
 		}
 	}
 
