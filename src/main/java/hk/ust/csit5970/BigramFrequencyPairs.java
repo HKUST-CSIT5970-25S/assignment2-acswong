@@ -71,25 +71,20 @@ public class BigramFrequencyPairs extends Configured implements Tool {
             String leftWord = key.getLeftElement();
             String rightWord = key.getRightElement();
             
-            // When switching to new left word, output previous results
             if (lastLeftWord != null && !leftWord.equals(lastLeftWord)) {
-                // Output marginal count
                 VALUE.set(marginalCount);
                 context.write(new PairOfStrings(lastLeftWord, ""), VALUE);
                 
-                // Output relative frequencies
                 for (Map.Entry<String, Integer> entry : bigramCounts.entrySet()) {
                     float frequency = (float)entry.getValue() / marginalCount;
                     VALUE.set(frequency);
                     context.write(new PairOfStrings(lastLeftWord, entry.getKey()), VALUE);
                 }
                 
-                // Reset for new left word
                 bigramCounts.clear();
                 marginalCount = 0;
             }
             
-            // Calculate sum for current bigram
             int sum = 0;
             for (IntWritable value : values) {
                 sum += value.get();
@@ -103,11 +98,9 @@ public class BigramFrequencyPairs extends Configured implements Tool {
         @Override
         protected void cleanup(Context context) throws IOException, InterruptedException {
             if (lastLeftWord != null) {
-                // Output last marginal count
                 VALUE.set(marginalCount);
                 context.write(new PairOfStrings(lastLeftWord, ""), VALUE);
                 
-                // Output last set of relative frequencies
                 for (Map.Entry<String, Integer> entry : bigramCounts.entrySet()) {
                     float frequency = (float)entry.getValue() / marginalCount;
                     VALUE.set(frequency);
