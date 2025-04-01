@@ -31,7 +31,7 @@ public class CORPairs extends Configured implements Tool {
     private static final Logger LOG = Logger.getLogger(CORPairs.class);
 
     /*
-     * Done First-pass Mapper
+     * First-pass Mapper
      */
     private static class CORMapper1 extends Mapper<LongWritable, Text, Text, IntWritable> {
         private static final IntWritable ONE = new IntWritable(1);
@@ -54,7 +54,7 @@ public class CORPairs extends Configured implements Tool {
     }
 
     /*
-     * First-pass Reducer to Sum up word freq
+     * First-pass Reducer
      */
     private static class CORReducer1 extends Reducer<Text, IntWritable, Text, IntWritable> {
         private IntWritable result = new IntWritable();
@@ -118,7 +118,7 @@ public class CORPairs extends Configured implements Tool {
     }
 
     /*
-     * Second-pass Reducer which is compute COR(A, B)
+     * Second-pass Reducer
      */
     public static class CORPairsReducer2 extends Reducer<PairOfStrings, IntWritable, PairOfStrings, DoubleWritable> {
         private final static Map<String, Integer> word_total_map = new HashMap<String, Integer>();
@@ -170,7 +170,7 @@ public class CORPairs extends Configured implements Tool {
     }
 
     /*
-     * partitioner: Partition based on left word
+     * Partitioner: Partition based on left word
      */
     private static class MyPartitioner extends Partitioner<PairOfStrings, IntWritable> {
         @Override
