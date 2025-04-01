@@ -128,7 +128,10 @@ public class CORStripes extends Configured implements Tool {
                 for (Map.Entry<Writable, Writable> entry : stripe.entrySet()) {
                     Text word = (Text) entry.getKey();
                     IntWritable count = (IntWritable) entry.getValue();
-                    IntWritable existingCount = (IntWritable) combinedStripe.getOrDefault(word, ZERO);
+                    IntWritable existingCount = (IntWritable) combinedStripe.get(word);
+                    if (existingCount == null) {
+                        existingCount = ZERO;
+                    }
                     combinedStripe.put(word, new IntWritable(existingCount.get() + count.get()));
                 }
             }
@@ -188,7 +191,10 @@ public class CORStripes extends Configured implements Tool {
                 for (Map.Entry<Writable, Writable> entry : stripe.entrySet()) {
                     Text word2 = (Text) entry.getKey();
                     IntWritable count = (IntWritable) entry.getValue();
-                    IntWritable existingCount = (IntWritable) finalStripe.getOrDefault(word2, ZERO);
+                    IntWritable existingCount = (IntWritable) finalStripe.get(word2);
+                    if (existingCount == null) {
+                        existingCount = ZERO;
+                    }
                     finalStripe.put(word2, new IntWritable(existingCount.get() + count.get()));
                 }
             }
