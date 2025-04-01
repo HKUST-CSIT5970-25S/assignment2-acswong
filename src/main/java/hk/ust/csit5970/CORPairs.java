@@ -125,7 +125,7 @@ public class CORPairs extends Configured implements Tool {
         private DoubleWritable result = new DoubleWritable();
 
         @Override
-        protected void setup(Context context) throws IOException arbitrations, InterruptedException {
+        protected void setup(Context context) throws IOException, InterruptedException {
             Path middle_result_path = new Path("mid/part-r-00000");
             Configuration middle_conf = new Configuration();
             try {
@@ -170,7 +170,7 @@ public class CORPairs extends Configured implements Tool {
     }
 
     /*
-     * Partitioner: Partition based on left word
+     * Partitioner
      */
     private static class MyPartitioner extends Partitioner<PairOfStrings, IntWritable> {
         @Override
@@ -238,7 +238,7 @@ public class CORPairs extends Configured implements Tool {
         Job job1 = Job.getInstance(conf1, "CORPairs-FirstPass");
         job1.setJarByClass(CORPairs.class);
         job1.setMapperClass(CORMapper1.class);
-        job1.setCombinerClass(CORReducer1.class);  // Add combiner for efficiency
+        job1.setCombinerClass(CORReducer1.class);
         job1.setReducerClass(CORReducer1.class);
         job1.setOutputKeyClass(Text.class);
         job1.setOutputValueClass(IntWritable.class);
